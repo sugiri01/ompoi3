@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,55 +8,55 @@ datasource db {
 }
 
 model User {
-  id         Int      @id @default(autoincrement())
-  userCode   String   @unique @map("user_code") @db.VarChar(20)
-  name       String   @db.VarChar(255)
-  email      String   @unique @db.VarChar(255)
-  phone      String?  @db.VarChar(50)
-  role       Role
-  status     Status
-  lastLogin  DateTime? @map("last_login")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id        Int       @id @default(autoincrement())
+  userCode  String    @unique @map("user_code") @db.VarChar(20)
+  name      String    @db.VarChar(255)
+  email     String    @unique @db.VarChar(255)
+  phone     String?   @db.VarChar(50)
+  role      Role
+  status    Status
+  lastLogin DateTime? @map("last_login")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@map("users")
 }
 
 model OperationsQueue {
-  id            Int      @id @default(autoincrement())
-  orderCode     String   @unique @map("order_code") @db.VarChar(50)
-  title         String   @db.VarChar(255)
-  description   String?  @db.Text
-  actionType    String   @map("action_type") @db.VarChar(100)
-  relatedEntity String   @map("related_entity") @db.VarChar(255)
+  id            Int       @id @default(autoincrement())
+  orderCode     String    @unique @map("order_code") @db.VarChar(50)
+  title         String    @db.VarChar(255)
+  description   String?
+  actionType    String    @map("action_type") @db.VarChar(100)
+  relatedEntity String    @map("related_entity") @db.VarChar(255)
   status        OpsStatus
-  priority      Int      @default(0)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  priority      Int       @default(0)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@map("operations_queue")
 }
 
 model SystemStatus {
-  id           Int      @id @default(autoincrement())
-  serviceName  String   @map("service_name") @db.VarChar(100)
-  status       ServiceStatus
-  details      String?  @db.Text
-  latencyMs    Int?     @map("latency_ms")
-  cpuUsage     Int?     @map("cpu_usage")
-  lastChecked  DateTime @default(now()) @map("last_checked")
+  id          Int           @id @default(autoincrement())
+  serviceName String        @map("service_name") @db.VarChar(100)
+  status      ServiceStatus
+  details     String?
+  latencyMs   Int?          @map("latency_ms")
+  cpuUsage    Int?          @map("cpu_usage")
+  lastChecked DateTime      @default(now()) @map("last_checked")
 
   @@map("system_status")
 }
 
 model Statistics {
-  id             Int      @id @default(autoincrement())
-  statType       String   @map("stat_type") @db.VarChar(100)
-  currentValue   String   @map("current_value") @db.VarChar(50)
+  id             Int             @id @default(autoincrement())
+  statType       String          @map("stat_type") @db.VarChar(100)
+  currentValue   String          @map("current_value") @db.VarChar(50)
   trendDirection TrendDirection? @map("trend_direction")
-  trendValue     String?  @map("trend_value") @db.VarChar(50)
-  period         String?  @db.VarChar(50)
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  trendValue     String?         @map("trend_value") @db.VarChar(50)
+  period         String?         @db.VarChar(50)
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
   @@map("statistics")
 }
@@ -82,7 +76,7 @@ enum Status {
 }
 
 enum OpsStatus {
-  Pending_QC @map("Pending QC")
+  Pending_QC   @map("Pending QC")
   Hold
   Verification
   Review

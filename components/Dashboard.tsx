@@ -1,6 +1,6 @@
 'use client'
-import React, { useState } from 'react'
-import { Settings, Package, Cpu, Users, AlertCircle, TrendingUp, TrendingDown, FileText, Ship, Tag, User as UserIcon } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Settings, Package, Cpu, Users, AlertCircle, TrendingUp, TrendingDown, FileText, Ship, Tag, User as UserIcon, RefreshCw } from 'lucide-react'
 import Notification from './Notification'
 import Modal from './Modal'
 import type { User as UserType, NewUser, NotificationState, Stat, QuickAction } from '@/types'
@@ -21,19 +21,109 @@ export default function Dashboard() {
     role: '',
     phone: ''
   })
+  
+  // Data from database
+  const [users, setUsers] = useState<UserType[]>([])
+  const [stats, setStats] = useState<Stat[]>([])
+  const [operations, setOperations] = useState<any[]>([])
+  const [systemStatus, setSystemStatus] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  // Fetch data from database
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    setLoading(true)
+    try {
+      const [usersRes, statsRes, opsRes, statusRes] = await Promise.all([
+        fetch('/api/users'),
+        fetch('/api/stats'),
+        fetch('/api/operations'),
+        fetch('/api/system-status'),
+      ])
+
+      if (usersRes.ok) {
+        const usersData = await usersRes.json()
+        setUsers(usersData.users || [])
+      }
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json()
+        // Map stats with icons
+        const statsWithIcons = (statsData.stats || []).map((stat: any) => ({
+          ...stat,
+          icon: getIconForStat(stat.label),
+        }))
+        setStats(statsWithIcons)
+      }
+
+      if (opsRes.ok) {
+        const opsData = await opsRes.json()
+        setOperations(opsData.operations || [])
+      }
+
+      if (statusRes.ok) {
+        const statusData = await statusRes.json()
+        setSystemStatus(statusData.statuses || [])
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error)
+      showNotification('Failed to load dashboard data', 'error')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await fetchDashboardData()
+  }
+
+  const getIconForStat = (label: string) => {
+    const iconMap: Record<string, any> = {
+      'Pending Orders': Package,
+      'System Uptime': Cpu,
+      'New Registrations': Users,
+      'Open Support Tickets': AlertCircle,
+    }
+    return iconMap[label] || Package
+  }
 
   const showNotification = (message: string, type: NotificationState['type'] = 'success') => {
     setNotification({ show: true, message, type })
   }
 
-  const handleCreateUser = () => {
+  const handleCreateUser = async () => {
     if (!newUser.name || !newUser.email || !newUser.role || !newUser.phone) {
       showNotification('Please fill all fields', 'error')
       return
     }
-    showNotification(`User ${newUser.name} created successfully!`, 'success')
-    setCreateUserModal(false)
-    setNewUser({ name: '', email: '', role: '', phone: '' })
+
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        showNotification(`User ${newUser.name} created successfully!`, 'success')
+        setCreateUserModal(false)
+        setNewUser({ name: '', email: '', role: '', phone: '' })
+        await fetchDashboardData() // Refresh data
+      } else {
+        showNotification(data.error || 'Failed to create user', 'error')
+      }
+    } catch (error) {
+      console.error('Error creating user:', error)
+      showNotification('Error creating user', 'error')
+    }
   }
 
   const handleManageUser = (user: UserType) => {
@@ -41,19 +131,76 @@ export default function Dashboard() {
     setManageUserModal(true)
   }
 
-  const stats: Stat[] = [
-    { label: 'Pending Orders', value: '147', icon: Package, trend: 'down', trendValue: '5%', color: 'warning' },
-    { label: 'System Uptime', value: '99.9%', icon: Cpu, trend: 'up', trendValue: '0.05%', color: 'success' },
-    { label: 'New Registrations', value: '25', icon: Users, trend: 'up', trendValue: '12%', color: 'info' },
-    { label: 'Open Support Tickets', value: '7', icon: AlertCircle, trend: 'up', trendValue: '2 High', color: 'danger' }
-  ]
+  const handleUpdateUser = async () => {
+    if (!selectedUser) return
 
-  const users: UserType[] = [
-    { id: 'U00128', name: 'John Doe', role: 'Seller', status: 'Active', lastLogin: '5 mins ago' },
-    { id: 'U00055', name: 'Jane Smith', role: 'Buyer', status: 'Active', lastLogin: '2 days ago' },
-    { id: 'U00340', name: 'Tech Tester', role: 'QC Agent', status: 'Locked', lastLogin: 'Account Locked' },
-    { id: 'U00401', name: 'New User', role: 'Buyer', status: 'Pending', lastLogin: 'Email Verification Pending' }
-  ]
+    try {
+      const roleSelect = document.getElementById('user-role-select') as HTMLSelectElement
+      const statusSelect = document.getElementById('user-status-select') as HTMLSelectElement
+      
+      const response = await fetch(`/api/users/${selectedUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          role: roleSelect?.value || selectedUser.role, 
+          status: statusSelect?.value || selectedUser.status 
+        }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        showNotification('User updated successfully', 'success')
+        setManageUserModal(false)
+        await fetchDashboardData() // Refresh data
+      } else {
+        showNotification(data.error || 'Failed to update user', 'error')
+      }
+    } catch (error) {
+      console.error('Error updating user:', error)
+      showNotification('Error updating user', 'error')
+    }
+  }
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('Are you sure you want to delete this user?')) return
+
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        showNotification('User deleted successfully', 'success')
+        setManageUserModal(false)
+        await fetchDashboardData() // Refresh data
+      } else {
+        const data = await response.json()
+        showNotification(data.error || 'Failed to delete user', 'error')
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      showNotification('Error deleting user', 'error')
+    }
+  }
+
+  const handleApproveOperation = async (operationId: string) => {
+    try {
+      const response = await fetch(`/api/operations/${operationId}/approve`, {
+        method: 'POST',
+      })
+
+      if (response.ok) {
+        showNotification('Operation approved', 'success')
+        await fetchDashboardData() // Refresh data
+      } else {
+        showNotification('Failed to approve operation', 'error')
+      }
+    } catch (error) {
+      console.error('Error approving operation:', error)
+      showNotification('Error approving operation', 'error')
+    }
+  }
 
   const quickActions: QuickAction[] = [
     { icon: FileText, title: 'Generate Report', desc: 'Run monthly operational reports.', color: 'bg-green-50' },
@@ -61,18 +208,37 @@ export default function Dashboard() {
     { icon: Tag, title: 'Manage Product Catalog', desc: 'Update pricing and product details.', color: 'bg-amber-50' }
   ]
 
-  const statBgByColor: Record<Stat['color'], string> = {
+  const statBgByColor: Record<string, string> = {
     warning: 'bg-amber-50',
     success: 'bg-green-50',
     info: 'bg-blue-50',
     danger: 'bg-red-50'
   }
 
-  const statusClassByStatus: Record<'Active' | 'Locked' | 'Pending' | 'Suspended', string> = {
+  const statusClassByStatus: Record<string, string> = {
     Active: 'bg-green-50 text-green-800',
     Locked: 'bg-red-50 text-red-800',
     Pending: 'bg-amber-50 text-amber-800',
-    Suspended: 'bg-gray-100 text-gray-700'
+    Suspended: 'bg-gray-100 text-gray-700',
+    Inactive: 'bg-gray-50 text-gray-600'
+  }
+
+  const statusBgByService: Record<string, string> = {
+    Operational: 'bg-green-50 border-green-200',
+    Warning: 'bg-amber-50 border-amber-200',
+    Down: 'bg-red-50 border-red-200',
+  }
+
+  const statusColorByService: Record<string, string> = {
+    Operational: 'text-green-800',
+    Warning: 'text-amber-800',
+    Down: 'text-red-800',
+  }
+
+  const statusEmoji: Record<string, string> = {
+    Operational: '🟢',
+    Warning: '🟡',
+    Down: '🔴',
   }
 
   return (
@@ -85,6 +251,14 @@ export default function Dashboard() {
             <div className="text-lg font-bold text-gray-900">OMPOI Admin</div>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={handleRefresh}
+              className="inline-flex items-center gap-2 font-medium text-gray-900 hover:text-green-600 transition-colors"
+              disabled={refreshing}
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
             <button
               onClick={() => showNotification('Support page coming soon!', 'warning')}
               className="font-medium text-gray-900 hover:text-green-600 transition-colors"
@@ -114,7 +288,10 @@ export default function Dashboard() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-2xl font-bold text-gray-900">Admin Dashboard</div>
-            <div className="text-sm text-gray-500 mt-1">Overview for Operations & IT Management</div>
+            <div className="text-sm text-gray-500 mt-1">
+              Overview for Operations & IT Management 
+              {loading && <span className="ml-2">(Loading...)</span>}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -135,28 +312,44 @@ export default function Dashboard() {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map((stat, idx) => {
-            const Icon = stat.icon
-            return (
-              <div
-                key={idx}
-                onClick={() => showNotification(`Viewing ${stat.label}`, 'success')}
-                className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer"
-              >
+          {loading && stats.length === 0 ? (
+            // Loading skeleton
+            Array.from({ length: 4 }).map((_, idx) => (
+              <div key={idx} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm animate-pulse">
                 <div className="flex items-start justify-between mb-3">
-                  <div className="text-sm text-gray-500">{stat.label}</div>
-                  <div className={`p-2.5 rounded-lg ${statBgByColor[stat.color]}`}>
-                    <Icon className="w-5 h-5 text-gray-700" />
-                  </div>
+                  <div className="h-4 bg-gray-200 rounded w-24"></div>
+                  <div className="w-10 h-10 bg-gray-200 rounded-lg"></div>
                 </div>
-                <div className="text-3xl font-bold text-gray-900 mb-1">{stat.value}</div>
-                <div className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md ${stat.trend === 'up' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                  {stat.trend === 'up' ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                  {stat.trendValue} vs last week
-                </div>
+                <div className="h-8 bg-gray-200 rounded w-20 mb-2"></div>
+                <div className="h-6 bg-gray-200 rounded w-28"></div>
               </div>
-            )
-          })}
+            ))
+          ) : (
+            stats.map((stat, idx) => {
+              const Icon = stat.icon
+              return (
+                <div
+                  key={idx}
+                  onClick={() => showNotification(`Viewing ${stat.label}`, 'success')}
+                  className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="text-sm text-gray-500">{stat.label}</div>
+                    <div className={`p-2.5 rounded-lg ${statBgByColor[stat.color || 'info']}`}>
+                      <Icon className="w-5 h-5 text-gray-700" />
+                    </div>
+                  </div>
+                  <div className="text-3xl font-bold text-gray-900 mb-1">{stat.value}</div>
+                  {stat.trend && (
+                    <div className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md ${stat.trend === 'up' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                      {stat.trend === 'up' ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                      {stat.trendValue} vs last week
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
         </div>
 
         {/* Main Content Grid */}
@@ -166,82 +359,97 @@ export default function Dashboard() {
             {/* User Management Card */}
             <div className="bg-white border border-gray-200 rounded-2xl shadow-md">
               <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                <div className="font-bold text-gray-900">User & Access Control <span className="text-xs text-green-600 font-semibold">(IT Admin)</span></div>
+                <div className="font-bold text-gray-900">
+                  User & Access Control <span className="text-xs text-green-600 font-semibold">(IT Admin)</span>
+                  <span className="text-xs text-gray-500 ml-2">({users.length} users)</span>
+                </div>
                 <button
-                  onClick={() => showNotification('Loading all users...', 'success')}
+                  onClick={() => window.location.href = '/admin/users'}
                   className="text-sm text-green-600 font-semibold hover:text-green-700"
                 >
                   View All Users
                 </button>
               </div>
               <div className="p-4 divide-y divide-gray-100">
-                {users.map((user) => (
-                  <div key={user.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                        <UserIcon className="w-5 h-5 text-gray-600" />
+                {loading && users.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500">Loading users...</div>
+                ) : users.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500">No users found</div>
+                ) : (
+                  users.slice(0, 4).map((user) => (
+                    <div key={user.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          <UserIcon className="w-5 h-5 text-gray-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-gray-900 truncate">#{user.id}: {user.name}</div>
+                          <div className="text-xs text-gray-500">Role: {user.role} | {user.lastLogin || 'Never logged in'}</div>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-gray-900 truncate">#{user.id}: {user.name}</div>
-                        <div className="text-xs text-gray-500">Role: {user.role} | {user.lastLogin}</div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-lg whitespace-nowrap ${statusClassByStatus[user.status || 'Pending']}`}>
+                          {user.status || 'Pending'}
+                        </span>
+                        <button
+                          onClick={() => handleManageUser(user)}
+                          className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-green-500 hover:text-white transition-all whitespace-nowrap"
+                        >
+                          Manage
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-xs font-bold px-2.5 py-1 rounded-lg whitespace-nowrap ${statusClassByStatus[user.status]}`}>{user.status}</span>
-                      <button
-                        onClick={() => handleManageUser(user)}
-                        className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-green-500 hover:text-white transition-all whitespace-nowrap"
-                      >
-                        Manage
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
             {/* Operations Queue Card */}
             <div className="bg-white border border-gray-200 rounded-2xl shadow-md">
               <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                <div className="font-bold text-gray-900">Operations Review Queue <span className="text-xs text-green-600 font-semibold">(Ops Admin)</span></div>
+                <div className="font-bold text-gray-900">
+                  Operations Review Queue <span className="text-xs text-green-600 font-semibold">(Ops Admin)</span>
+                </div>
                 <button
-                  onClick={() => showNotification('Loading full operations queue...', 'success')}
+                  onClick={() => window.location.href = '/admin/operations'}
                   className="text-sm text-green-600 font-semibold hover:text-green-700"
                 >
                   View Full Queue
                 </button>
               </div>
               <div className="p-4 space-y-3">
-                <div className="flex items-center justify-between gap-4 border border-gray-100 rounded-xl p-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-bold text-gray-900">#ORD-9012: Cashew Lot 42</div>
-                    <div className="text-xs text-gray-500">QC Report Approval | Seller: East Africa Traders</div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 whitespace-nowrap">Pending QC</span>
-                    <button
-                      onClick={() => showNotification('Opening review...', 'success')}
-                      className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-green-500 hover:text-white transition-all"
-                    >
-                      Review
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-4 border border-gray-100 rounded-xl p-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-bold text-gray-900">#TXN-1002: $15,000 Payment</div>
-                    <div className="text-xs text-gray-500">High Value Transaction | Buyer: Global Nuts Inc.</div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-red-50 text-red-800">Hold</span>
-                    <button
-                      onClick={() => showNotification('Transaction approved', 'success')}
-                      className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-green-500 hover:text-white transition-all"
-                    >
-                      Approve
-                    </button>
-                  </div>
-                </div>
+                {loading && operations.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500">Loading operations...</div>
+                ) : operations.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500">No operations in queue</div>
+                ) : (
+                  operations.slice(0, 2).map((op) => (
+                    <div key={op.id} className="flex items-center justify-between gap-4 border border-gray-100 rounded-xl p-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold text-gray-900">#{op.orderCode}: {op.title}</div>
+                        <div className="text-xs text-gray-500">{op.description} | {op.relatedEntity}</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-lg whitespace-nowrap ${
+                          op.status === 'PendingQC' ? 'bg-amber-50 text-amber-800' : 
+                          op.status === 'Hold' ? 'bg-red-50 text-red-800' :
+                          'bg-gray-50 text-gray-800'
+                        }`}>
+                          {op.status === 'PendingQC' ? 'Pending QC' : op.status}
+                        </span>
+                        <button
+                          onClick={() => op.status === 'Hold' ? 
+                            handleApproveOperation(op.id) : 
+                            showNotification('Opening review...', 'success')
+                          }
+                          className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-green-500 hover:text-white transition-all"
+                        >
+                          {op.status === 'Hold' ? 'Approve' : 'Review'}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -254,36 +462,27 @@ export default function Dashboard() {
                 <div className="font-bold text-gray-900">System Status (IT)</div>
               </div>
               <div className="p-3 space-y-2">
-                <div
-                  onClick={() => showNotification('API Gateway: Operational', 'success')}
-                  className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-xl cursor-pointer hover:bg-white hover:shadow-sm transition-all"
-                >
-                  <span className="text-2xl">🟢</span>
-                  <div>
-                    <div className="text-sm font-bold text-gray-900">API Gateway</div>
-                    <div className="text-xs text-green-800">Operational. Latency: 50ms</div>
-                  </div>
-                </div>
-                <div
-                  onClick={() => showNotification('Database: High Load', 'warning')}
-                  className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-white hover:shadow-sm transition-all"
-                >
-                  <span className="text-2xl">🟡</span>
-                  <div>
-                    <div className="text-sm font-bold text-gray-900">Database Server</div>
-                    <div className="text-xs text-amber-800">High Load. CPU: 85%</div>
-                  </div>
-                </div>
-                <div
-                  onClick={() => showNotification('Reconnecting...', 'success')}
-                  className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-xl cursor-pointer hover:bg-white hover:shadow-sm transition-all"
-                >
-                  <span className="text-2xl">🔴</span>
-                  <div>
-                    <div className="text-sm font-bold text-gray-900">Logistics Partner Sync</div>
-                    <div className="text-xs text-red-800">Connection failed 3 hours ago.</div>
-                  </div>
-                </div>
+                {loading && systemStatus.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500">Loading system status...</div>
+                ) : systemStatus.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500">No system status data</div>
+                ) : (
+                  systemStatus.map((status) => (
+                    <div
+                      key={status.id}
+                      onClick={() => showNotification(`${status.serviceName}: ${status.status}`, 
+                        status.status === 'Down' ? 'error' : status.status === 'Warning' ? 'warning' : 'success'
+                      )}
+                      className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-white hover:shadow-sm transition-all border ${statusBgByService[status.status]}`}
+                    >
+                      <span className="text-2xl">{statusEmoji[status.status]}</span>
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">{status.serviceName}</div>
+                        <div className={`text-xs ${statusColorByService[status.status]}`}>{status.details}</div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -370,7 +569,7 @@ export default function Dashboard() {
               <option value="">Select role...</option>
               <option value="Buyer">Buyer</option>
               <option value="Seller">Seller</option>
-              <option value="QC Agent">QC Agent</option>
+              <option value="QCAgent">QC Agent</option>
               <option value="Admin">Admin</option>
             </select>
           </div>
@@ -394,16 +593,19 @@ export default function Dashboard() {
         footer={
           <>
             <button
+              onClick={() => handleDeleteUser(selectedUser?.id || '')}
+              className="px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-600 font-semibold text-sm hover:bg-red-100"
+            >
+              Delete User
+            </button>
+            <button
               onClick={() => setManageUserModal(false)}
               className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white font-semibold text-sm hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
-              onClick={() => {
-                showNotification('Changes saved', 'success')
-                setManageUserModal(false)
-              }}
+              onClick={handleUpdateUser}
               className="px-4 py-2.5 rounded-xl bg-green-500 text-white font-semibold text-sm hover:bg-green-600"
             >
               Save Changes
